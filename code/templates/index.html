@@ -1,0 +1,15 @@
+<html>
+<head>
+<title>Noobcash!</title>
+<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/socket.io/1.3.6/socket.io.min.js"></script>
+</head>
+<body>
+<script type="text/javascript" charset="utf-8">
+    var socket = io.connect('http://127.0.0.1:' + location.port);
+    socket.on('connect', function() {
+	socket.send('User has connected!');
+//        socket.emit('my event', {data: 'I\'m connected!'});
+    });
+</script>
+</body>
+</html>

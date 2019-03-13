@@ -12,37 +12,31 @@ import json
 from time import time
 from urllib.parse import urlparse
 from uuid import uuid4
+from headers import *
 
-KEY_LEN = 2048
-
-class wallet:
+class Wallet:
 
 
-	def __init__(self):  # Diko mou gia dimiourgia kleidiwn kai upografis (vlepe Crypto vivliothikes)
-		##set
-		key = RSA.generate(KEY_LEN)
+	def __init__(self, public_key=None, private_key=None):
+		if (public_key == None and private_key == None):
+			random_gen = Crypto.Random.new().read
+			key = RSA.generate(KEY_LEN, random_gen)
+			private_key, public_key = key, key.publickey()
+			self.public_key = binascii.hexlify(public_key.exportKey(format='DER')).decode('ascii')
+			self.private_key = binascii.hexlify(private_key.exportKey(format='DER')).decode('ascii')
+		else:
+			self.public_key = public_key
+			self.private_key = private_key
 
-		message = b'Generic Message'
-
-		PrivKey, PubKey = key, key.publickey()
-
-		signer = PKCS1_v1_5.new(PrivKey)
-
-		digest = SHA.new()
-
-		digest.update(message)
-
-		signature = signer.sign(digest)
-
-		print(signature)
-
-		self.public_key = PubKey
-		self.private_key = PrivKey
-		self.address = PubKey
-		#self.transactions
+		#self.address = PubKey
+		#self.transactions = []
+		#signer = PKCS1_v1_5.new(PrivKey)
+		#digest = SHA.new()
+		#digest.update(message)
+		#signature = signer.sign(digest)
+		#print(signature)
+	
+	def to_dict(self):
+		return OrderedDict({'public_key': self.public_key.exportKey()})
 
 	#def balance():
-
-print("Let's go!\n")
-wallet()
-print("END!\n")
