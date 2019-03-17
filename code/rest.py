@@ -26,12 +26,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app)
 CORS(app)
-#blockchain = None
-#wallet = None
 node = None
-#nid = -1
-#port = ''
-#other_nodes = []
 param_lock = threading.Lock()
 
 #.......................................................................................
@@ -45,6 +40,7 @@ def connect():
 	if(port==BOOTSTRAP_PORT):
 		node = Node(HOST, port, index=0)
 		node.wallet = node.create_wallet()
+		node.NBCs.append({'id': '0', 'recipient_address': node.wallet.public_key, 'amount':NUM_OF_NODES * 100})
 		node.ring.append({'id': node.index, 'port': port, 'public_key': node.wallet.public_key})
 		print("Bootstrap node successfully added!")
 		print("My id: " + str(node.index))
@@ -55,12 +51,12 @@ def connect():
 		if(response.status_code == 200):
 			nid=response.json()['id']
 			node.index=int(nid)
+			blockchain_json= response.json()['blockchain']
+			node.chain = Blockchain(node.index, blockchain_json['unconfirmed_transactions'], blockchain_json['chain'])
 			response = requests.post("http://" + HOST + ":" + BOOTSTRAP_PORT + "/first_transaction?id="+ str(nid))
 			if(response.status_code == 200):
-				blockchain_json= response.json()['blockchain']
-				node.chain = Blockchain(node.index, blockchain_json['unconfirmed_transactions'], blockchain_json['chain'])
-				print("CHAIN IS: ")
-				print(node.chain.to_dict())
+				output = response.json()['output']
+				node.NBCs.append(output)
 				print("Median node added successfully!")
 	if(node.index == NUM_OF_NODES-1):
 		print("Oops! It was the last one!")
@@ -86,7 +82,7 @@ def init_node():
 	#Adding new node info in bootstrap's ring
 	node.ring.append({'id': nid, 'port': port, 'public_key': PubKey})
 	
-	response = {'id': nid}
+	response = {'blockchain': node.chain.to_dict(),'id': nid}
 	return jsonify(response),200 #Sending Key and id
 	
 @app.route('/first_transaction', methods=['POST'])
@@ -94,21 +90,66 @@ def first_transaction():
 	global node
 	nid = int(request.args.get('id'))
 	recipient_public_key = node.ring[nid]['public_key']
-	new_transaction= node.create_transaction(node.wallet.public_key, recipient_public_key, 100)
+	new_transaction= node.create_transaction(node.wallet.public_key, recipient_public_key, 100, node.NBCs)
 	transaction = new_transaction['transaction']
 	signature = new_transaction['signature']
-	if(node.broadcast_transaction(transaction, signature)==-1):
+	outputs = new_transaction['outputs']
+	if(node.broadcast_transaction(transaction, signature, outputs)==-1):
 		return jsonify({'status': 'Error'}), 500
-	node.add_transaction_to_block(new_transaction)
-	response = {'blockchain': node.chain.to_dict()}
-	print(response)
+	node.NBCs = [outputs['sender']]
+	response = {'output': outputs['recipient']}
+	#print(response)
 	return jsonify(response), 200
+
+@app.route('/new_transaction')
+def new_transaction():
+	global node
+	nid = int(request.args.get('id'))
+	amount = int(request.args.get('amount'))
+	recipient_public_key = node.ring[nid]['public_key']
+	new_transaction= node.create_transaction(node.wallet.public_key, recipient_public_key, amount, node.NBCs)
+	transaction = new_transaction['transaction']
+	signature = new_transaction['signature']
+	outputs = new_transaction['outputs']
+	if(node.broadcast_transaction(transaction, signature, outputs)==-1):
+		return jsonify({'status': 'Error'}), 500
+	node.NBCs = [outputs['sender']]
+	print("My precious output: ")
+	print(outputs['sender'])
+	print("Sending this output: ")
+	print(outputs['recipient'])
+	response = outputs['recipient']
+	r = requests.post("http://" + HOST + ":" + node.ring[nid]['port'] + "/receive_transaction", json=outputs['recipient'])
+	if(r.status_code != 200):
+		return jsonify({'status': 'Error'}), 500
+	return jsonify(response), 200
+
+@app.route('/receive_transaction', methods=['POST'])
+def receive_transaction():
+	global node
+	output = request.json
+	node.NBCs.append(output)
+	return jsonify({'status': 'OK'}), 200
+
+@app.route('/get_mined_block', methods=['POST'])
+def get_mined_block():
+	global node
+	mined_block = request.json['block']
+	transaction = request.json['transaction']
+	if(len(node.chain.chain) != mined_block['index']):
+		print('Got it from someone else')
+		return jsonify({'status': 'OK'}), 200
+	node.chain.chain.append(mined_block)
+	node.chain.unconfirmed_transactions = [transaction]
+	print("My chain now: ")
+	print(node.chain.chain)
+	print("New transaction: ")
+	print(node.chain.unconfirmed_transactions)	
+	return jsonify({'status':'OK'}), 200
 
 @app.route('/nodes_ready', methods=['POST'])
 def nodes_ready():
 	global node
-	print("My ring: ")
-	print(node.ring)
 	for current_node in node.ring:
 		if(current_node['port']!=BOOTSTRAP_PORT):
 			response = requests.post('http://' + HOST + ':' + current_node['port'] + '/get_ring', json=node.ring)
@@ -120,70 +161,48 @@ def nodes_ready():
 def get_my_ring():
 	global node
 	ring=request.json
-	print("I got this ring: ")
-	print(ring)
 	node.ring=ring
 	return jsonify({'status': 'OK'}), 200
 		
 @app.route('/validate_transaction', methods=['POST'])
 def validate_trans():
 	global node
-	#transaction=request.json
 	if(node.validate_transaction(request.json)==0):
 		return jsonify({'status': 'OK'}), 200
 	else:
 		return jsonify({'status': 'Error! Invalid Transaction'}), 400
-	
-# get all transactions in the blockchain
 
-@app.route('/transactions/get', methods=['GET'])  # Apo ton skeleto
-def get_transactions():
-    transactions = blockchain.unconfirmed_transactions
+@app.route('/run_5')
+def run_5():
+	global node
+	path = "../transactions/5nodes/transactions" + str(node.index) + ".txt"
+	file = open(path, "r")
+	line = file.readline()
+	return jsonify({'first_line': line}), 200
 
-    response = {'transactions': blockchain.unconfirmed_transactions}
-    return jsonify(response), 200
-
-@app.route('/transactions', methods=['POST'])
-def new_transactions():
-	tx_data = request.get_json()
-	required_fields = ["sender_address", "recipient_address", "amount"]
-	for field in required_fields:
-		if not tx_data.get(field):
-			return "Invalid transaction data", 400
-	ret = create_transaction(tx_data['sender_address'], tx_data['recipient_address'], tx_data['amount'])
-	if(ret == 0):
-		return "Transaction Added!", 201
+@app.route('/valid_chain')
+def valid_chain():
+	global node
+	if(node.valid_chain()):
+		return jsonify({'blockchain': node.chain.chain, 'unconfirmed_transactions': node.chain.unconfirmed_transactions})
 	else:
-		return "Post Error!", 400
-	
+		return jsonify({'status': 'Error! Invalid blockchain'}), 500
 
-#@app.route('/generate/transaction', methods=['POST']) #Copy-paste
-#def generate_transaction():
+@app.route('/balance')
+def balance():
+	global node
+	response = {'my_cash': node.balance()}
+	return jsonify(response), 200
 
-  #sender_address = request.form['sender_address']
-  #sender_private_key = request.form['sender_private_key']
-  #recipient_address = request.form['recipient_address']
-  #value = request.form['amount']
+@app.route('/view')
+def view():
+	global node
+	last_block = node.chain.chain[-1]
+	response = {'transactions': last_block['transactions']}
+	return jsonify(response), 200
 
-  #transaction = Transaction(sender_address, sender_private_key, recipient_address, value)
-
-  #response = {'transaction': transaction.to_dict(), 'signature': transaction.sign_transaction()}
-
-  #return jsonify(response), 200
-
-@app.route('/wallet/new', methods=['GET']) #Copy-paste
-def new_wallet():
-  random_gen = Crypto.Random.new().read
-  private_key = RSA.generate(1024, random_gen)
-  public_key = private_key.publickey()
-  response = {
-    'private_key': binascii.hexlify(private_key.exportKey(format='DER')).decode('ascii'),
-    'public_key': binascii.hexlify(public_key.exportKey(format='DER')).decode('ascii')
-  }
-
-  return jsonify(response), 200
-
-# run it once fore every node
+#@app.route('/help')
+#def help():
 
 if __name__ == '__main__':   #Skeletos
     from argparse import ArgumentParser

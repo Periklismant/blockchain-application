@@ -38,5 +38,3 @@ class Wallet:
 	
 	def to_dict(self):
 		return OrderedDict({'public_key': self.public_key.exportKey()})
-
-	#def balance():
