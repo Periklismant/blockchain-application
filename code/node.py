@@ -24,8 +24,7 @@ from Crypto.Hash import SHA256
 #bid_lock = threading.Lock()
 
 class Node:
-	def __init__(self,ip, port, index=None, chain=None):
-		#self.NBC=100  
+	def __init__(self,ip, port, index=None, chain=None): 
 		self.index =index
 		if(index==0):
 			self.chain = Blockchain(index) 

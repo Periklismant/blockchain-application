@@ -33,42 +33,49 @@ param_lock = threading.Lock()
 
 @socketio.on('connect')
 def connect():
-	global node #, nid, port, blockchain, wallet
-	print(request.host)
-	port = request.host.split(':',1)[1]
-	print(port)
-	if(port==BOOTSTRAP_PORT):
-		node = Node(HOST, port, index=0)
-		node.wallet = node.create_wallet()
-		node.NBCs.append({'id': '0', 'recipient_address': node.wallet.public_key, 'amount':NUM_OF_NODES * 100})
-		node.ring.append({'id': node.index, 'port': port, 'public_key': node.wallet.public_key})
-		print("Bootstrap node successfully added!")
-		print("My id: " + str(node.index))
-	else:	
-		node = Node(HOST, port)
-		node.wallet = node.create_wallet()
-		response = requests.get("http://" + HOST + ":" + BOOTSTRAP_PORT + "/init_node?port="+port+"&public_key="+node.wallet.public_key)
-		if(response.status_code == 200):
-			nid=response.json()['id']
-			node.index=int(nid)
-			blockchain_json= response.json()['blockchain']
-			node.chain = Blockchain(node.index, blockchain_json['unconfirmed_transactions'], blockchain_json['chain'])
-			response = requests.post("http://" + HOST + ":" + BOOTSTRAP_PORT + "/first_transaction?id="+ str(nid))
+	global node
+	if(not node):	
+		print(request.host)
+		port = request.host.split(':',1)[1]
+		print(port)
+		if(port==BOOTSTRAP_PORT):
+			node = Node(HOST, port, index=0)
+			node.wallet = node.create_wallet()
+			node.NBCs.append({'id': '0', 'recipient_address': node.wallet.public_key, 'amount':NUM_OF_NODES * 100})
+			node.ring.append({'id': node.index, 'port': port, 'public_key': node.wallet.public_key})
+			print("Bootstrap node successfully added!")
+			print("My id: " + str(node.index))
+		else:	
+			node = Node(HOST, port)
+			node.wallet = node.create_wallet()
+			response = requests.get("http://" + HOST + ":" + BOOTSTRAP_PORT + "/init_node?port="+port+"&public_key="+node.wallet.public_key)
 			if(response.status_code == 200):
-				output = response.json()['output']
-				node.NBCs.append(output)
-				print("Median node added successfully!")
-	if(node.index == NUM_OF_NODES-1):
-		print("Oops! It was the last one!")
-		response = requests.post("http://" + HOST + ":" + BOOTSTRAP_PORT + "/nodes_ready")
-		
-		#for node in other_nodes:
-			#node.ring=bootstrap_node.ring
-	return "Node Added! Your port is: " + port , 201
+				nid=response.json()['id']
+				node.index=int(nid)
+				blockchain_json= response.json()['blockchain']
+				node.chain = Blockchain(node.index, blockchain_json['unconfirmed_transactions'], blockchain_json['chain'])
+				response = requests.post("http://" + HOST + ":" + BOOTSTRAP_PORT + "/first_transaction?id="+ str(nid))
+				if(response.status_code == 200):
+					output = response.json()['output']
+					node.NBCs.append(output)
+					print("Median node added successfully!")
+		if(node.index == NUM_OF_NODES-1):
+			print("Oops! It was the last one!")
+			response = requests.post("http://" + HOST + ":" + BOOTSTRAP_PORT + "/nodes_ready")
+			
+			#for node in other_nodes:
+				#node.ring=bootstrap_node.ring
+		return "Node Added! Your port is: " + port , 201
+	else: 
+		return "Homepage!", 200
 
 @app.route('/')
 def sessions():
-	return render_template('index.html')
+	return render_template('homepage.html')
+
+@app.route('/create')
+def new_transaction_session():
+	return render_template('session.html')
 
 @app.route('/init_node', methods=['GET'])
 def init_node():
@@ -101,11 +108,11 @@ def first_transaction():
 	#print(response)
 	return jsonify(response), 200
 
-@app.route('/new_transaction')
+@app.route('/create/new_transaction', methods=['POST'])
 def new_transaction():
 	global node
-	nid = int(request.args.get('id'))
-	amount = int(request.args.get('amount'))
+	nid = int(request.form['id'])
+	amount = int(request.form['amount'])
 	recipient_public_key = node.ring[nid]['public_key']
 	new_transaction= node.create_transaction(node.wallet.public_key, recipient_public_key, amount, node.NBCs)
 	transaction = new_transaction['transaction']
@@ -191,18 +198,21 @@ def valid_chain():
 @app.route('/balance')
 def balance():
 	global node
-	response = {'my_cash': node.balance()}
-	return jsonify(response), 200
+	#response = {'my_cash': node.balance()}
+	#return jsonify(response), 200
+	cash = node.balance()
+	return render_template('balance.html', cash=cash)
 
 @app.route('/view')
 def view():
 	global node
 	last_block = node.chain.chain[-1]
-	response = {'transactions': last_block['transactions']}
-	return jsonify(response), 200
+	response = {'transactions': last_block['transactions']['transaction']}
+	return render_template('view.html',last_transactions=jsonify(response))
 
-#@app.route('/help')
-#def help():
+@app.route('/help')
+def help():
+	return render_template('help.html')
 
 if __name__ == '__main__':   #Skeletos
     from argparse import ArgumentParser
