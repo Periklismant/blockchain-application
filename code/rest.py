@@ -36,32 +36,31 @@ def sessions():
 	global node
 	if(not node):	
 		print(request.host)
-		port = request.host.split(':',1)[1]
-		print(port)
-		if(port==BOOTSTRAP_PORT):
-			node = Node(HOST, port, index=0)
+		ip = request.host.split(':',1)[0]
+		if(ip==BOOTSTRAP_IP):
+			node = Node(BOOTSTRAP_IP, PORT, index=0)
 			node.wallet = node.create_wallet()
 			node.NBCs.append({'id': '0', 'recipient_address': node.wallet.public_key, 'amount':NUM_OF_NODES * 100})
-			node.ring.append({'id': node.index, 'port': port, 'public_key': node.wallet.public_key})
+			node.ring.append({'id': node.index, 'ip': BOOTSTRAP_IP, 'public_key': node.wallet.public_key})
 			print("Bootstrap node successfully added!")
 			print("My id: " + str(node.index))
 		else:	
-			node = Node(HOST, port)
+			node = Node(ip, PORT)
 			node.wallet = node.create_wallet()
-			response = requests.get("http://" + HOST + ":" + BOOTSTRAP_PORT + "/init_node?port="+port+"&public_key="+node.wallet.public_key)
+			response = requests.get("http://" + BOOTSTRAP_IP + ":" + PORT + "/init_node?ip="+ip+"&public_key="+node.wallet.public_key)
 			if(response.status_code == 200):
 				nid=response.json()['id']
 				node.index=int(nid)
 				blockchain_json= response.json()['blockchain']
 				node.chain = Blockchain(node.index, blockchain_json['unconfirmed_transactions'], blockchain_json['chain'])
-				response = requests.post("http://" + HOST + ":" + BOOTSTRAP_PORT + "/first_transaction?id="+ str(nid))
+				response = requests.post("http://" + BOOTSTRAP_IP + ":" + PORT + "/first_transaction?id="+ str(nid))
 				if(response.status_code == 200):
 					output = response.json()['output']
 					node.NBCs.append(output)
 					print("Median node added successfully!")
 		if(node.index == NUM_OF_NODES-1):
 			print("Oops! It was the last one!")
-			response = requests.post("http://" + HOST + ":" + BOOTSTRAP_PORT + "/nodes_ready")
+			response = requests.post("http://" + BOOTSTRAP_IP + ":" + PORT + "/nodes_ready")
 			
 			#for node in other_nodes:
 				#node.ring=bootstrap_node.ring
@@ -82,9 +81,9 @@ def init_node():
 	node.current_id_count+=1 #for next node
 	
 	PubKey = request.args.get('public_key')
-	port=request.args.get('port')
+	ip=request.args.get('ip')
 	#Adding new node info in bootstrap's ring
-	node.ring.append({'id': nid, 'port': port, 'public_key': PubKey})
+	node.ring.append({'id': nid, 'ip': ip, 'public_key': PubKey})
 	
 	response = {'blockchain': node.chain.to_dict(),'id': nid}
 	return jsonify(response),200 #Sending Key and id
@@ -123,7 +122,7 @@ def new_transaction():
 	print("Sending this output: ")
 	print(outputs['recipient'])
 	response = outputs['recipient']
-	r = requests.post("http://" + HOST + ":" + node.ring[nid]['port'] + "/receive_transaction", json=outputs['recipient'])
+	r = requests.post("http://" + node.ring[nid]['ip'] + ":" + PORT + "/receive_transaction", json=outputs['recipient'])
 	if(r.status_code != 200):
 		return jsonify({'status': 'Error'}), 500
 	return jsonify(response), 200
@@ -156,7 +155,7 @@ def nodes_ready():
 	global node
 	for current_node in node.ring:
 		if(current_node['port']!=BOOTSTRAP_PORT):
-			response = requests.post('http://' + HOST + ':' + current_node['port'] + '/get_ring', json=node.ring)
+			response = requests.post('http://' + current_node['ip'] + ':' + PORT + '/get_ring', json=node.ring)
 			if(response.status_code != 200):
 				return jsonify({'status':'Error'}), 400
 	return jsonify({'status': 'OK'}), 200
@@ -195,8 +194,6 @@ def valid_chain():
 @app.route('/balance')
 def balance():
 	global node
-	#response = {'my_cash': node.balance()}
-	#return jsonify(response), 200
 	cash = node.balance()
 	return render_template('balance.html', cash=cash)
 
@@ -216,8 +213,9 @@ if __name__ == '__main__':   #Skeletos
 
     parser = ArgumentParser()
     parser.add_argument('-p', '--port', default=5000, type=int, help='port to listen on')
+    parser.add_argument('ip', required=True)
     args = parser.parse_args()
     port = args.port
-    
+    ip = args.ip
     #app.run()
-    socketio.run(app, host='127.0.0.1', port=port)
+    socketio.run(app, host=ip, port=port)
