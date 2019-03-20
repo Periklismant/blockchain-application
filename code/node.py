@@ -20,8 +20,6 @@ from time import time
 
 import Crypto
 from Crypto.Hash import SHA256
-#bid = 1
-#bid_lock = threading.Lock()
 
 class Node:
 	def __init__(self,ip, port, index=None, chain=None): 
@@ -86,7 +84,7 @@ class Node:
 		session = FuturesSession()
 		future = []
 		for node in self.ring:
-			future.append(session.post('http://' + HOST + ':' + node['port'] + '/validate_transaction', 
+			future.append(session.post('http://' + node['ip'] + ':' + PORT + '/validate_transaction', 
 										json={'transaction':transaction, 'signature': signature, 'outputs': outputs},
 										hooks={'response': self.response_hook}))
 		for fut in future:
@@ -163,7 +161,7 @@ class Node:
 		session = FuturesSession()
 		future = []
 		for node in self.ring:
-			future.append(session.post('http://' + HOST + ':' + node['port'] + '/get_mined_block', 
+			future.append(session.post('http://' + node['ip'] + ':' + PORT + '/get_mined_block', 
 										json={'block': mined_block, 'transaction': transaction}, 
 										hooks={'response': self.response_hook}))
 		for fut in future:
