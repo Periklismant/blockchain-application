@@ -33,6 +33,9 @@ param_lock = threading.Lock()
 
 @socketio.on('connect')
 def connect():
+	
+@app.route('/')
+def sessions():
 	global node
 	if(not node):	
 		print(request.host)
@@ -65,13 +68,10 @@ def connect():
 			
 			#for node in other_nodes:
 				#node.ring=bootstrap_node.ring
-		return "Node Added! Your port is: " + port , 201
+		#return "Node Added! Your port is: " + port , 201
 	else: 
-		return "Homepage!", 200
-
-@app.route('/')
-def sessions():
-	return render_template('homepage.html')
+		#return "Homepage!", 200
+	return render_template('homepage.html'), 200
 
 @app.route('/create')
 def new_transaction_session():
