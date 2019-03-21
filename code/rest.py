@@ -48,25 +48,25 @@ def sessions():
 		else:	
 			node = Node(ip, port)
 			node.wallet = node.create_wallet()
-			response = requests.get("http://" + ip + ":" + port + "/init_node?ip="+ip+"&port="+ port + "&public_key="+node.wallet.public_key)
+			response = requests.get("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/init_node?ip="+ip+"&port="+ port + "&public_key="+node.wallet.public_key)
 			if(response.status_code == 200):
 				nid=response.json()['id']
 				node.index=int(nid)
 				blockchain_json= response.json()['blockchain']
 				node.chain = Blockchain(node.index, blockchain_json['unconfirmed_transactions'], blockchain_json['chain'])
-				response = requests.post("http://" + ip + ":" + port + "/first_transaction?id="+ str(nid))
+				response = requests.post("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/first_transaction?id="+ str(nid))
 				if(response.status_code == 200):
 					output = response.json()['output']
 					node.NBCs.append(output)
 					print("Median node added successfully!")
 		if(node.index == NUM_OF_NODES-1):
 			print("Oops! It was the last one!")
-			response = requests.post("http://" + ip + ":" + port + "/nodes_ready")
+			response = requests.post("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/nodes_ready")
 			
 			#for node in other_nodes:
 				#node.ring=bootstrap_node.ring
 		#return "Node Added! Your port is: " + port , 201
-	else: 
+	#else: 
 		#return "Homepage!", 200
 	return render_template('homepage.html'), 200
 
