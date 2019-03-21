@@ -37,30 +37,31 @@ def sessions():
 	if(not node):	
 		print(request.host)
 		ip = request.host.split(':',1)[0]
+		port = request.host.split(':',1)[1]
 		if(ip==BOOTSTRAP_IP):
-			node = Node(BOOTSTRAP_IP, PORT, index=0)
+			node = Node(ip, port, index=0)
 			node.wallet = node.create_wallet()
 			node.NBCs.append({'id': '0', 'recipient_address': node.wallet.public_key, 'amount':NUM_OF_NODES * 100})
-			node.ring.append({'id': node.index, 'ip': BOOTSTRAP_IP, 'public_key': node.wallet.public_key})
+			node.ring.append({'id': node.index, 'ip': ip,'port': port, 'public_key': node.wallet.public_key})
 			print("Bootstrap node successfully added!")
 			print("My id: " + str(node.index))
 		else:	
-			node = Node(ip, PORT)
+			node = Node(ip, port)
 			node.wallet = node.create_wallet()
-			response = requests.get("http://" + BOOTSTRAP_IP + ":" + PORT + "/init_node?ip="+ip+"&public_key="+node.wallet.public_key)
+			response = requests.get("http://" + ip + ":" + port + "/init_node?ip="+ip+"&port="+ port + "&public_key="+node.wallet.public_key)
 			if(response.status_code == 200):
 				nid=response.json()['id']
 				node.index=int(nid)
 				blockchain_json= response.json()['blockchain']
 				node.chain = Blockchain(node.index, blockchain_json['unconfirmed_transactions'], blockchain_json['chain'])
-				response = requests.post("http://" + BOOTSTRAP_IP + ":" + PORT + "/first_transaction?id="+ str(nid))
+				response = requests.post("http://" + ip + ":" + port + "/first_transaction?id="+ str(nid))
 				if(response.status_code == 200):
 					output = response.json()['output']
 					node.NBCs.append(output)
 					print("Median node added successfully!")
 		if(node.index == NUM_OF_NODES-1):
 			print("Oops! It was the last one!")
-			response = requests.post("http://" + BOOTSTRAP_IP + ":" + PORT + "/nodes_ready")
+			response = requests.post("http://" + ip + ":" + port + "/nodes_ready")
 			
 			#for node in other_nodes:
 				#node.ring=bootstrap_node.ring
@@ -82,8 +83,9 @@ def init_node():
 	
 	PubKey = request.args.get('public_key')
 	ip=request.args.get('ip')
+	port=request.args.get('port')
 	#Adding new node info in bootstrap's ring
-	node.ring.append({'id': nid, 'ip': ip, 'public_key': PubKey})
+	node.ring.append({'id': nid, 'ip': ip, 'port': port, 'public_key': PubKey})
 	
 	response = {'blockchain': node.chain.to_dict(),'id': nid}
 	return jsonify(response),200 #Sending Key and id
@@ -122,7 +124,7 @@ def new_transaction():
 	print("Sending this output: ")
 	print(outputs['recipient'])
 	response = outputs['recipient']
-	r = requests.post("http://" + node.ring[nid]['ip'] + ":" + PORT + "/receive_transaction", json=outputs['recipient'])
+	r = requests.post("http://" + node.ring[nid]['ip'] + ":" + node.ring[nid][port] + "/receive_transaction", json=outputs['recipient'])
 	if(r.status_code != 200):
 		return jsonify({'status': 'Error'}), 500
 	return jsonify(response), 200
@@ -154,8 +156,8 @@ def get_mined_block():
 def nodes_ready():
 	global node
 	for current_node in node.ring:
-		if(current_node['port']!=BOOTSTRAP_PORT):
-			response = requests.post('http://' + current_node['ip'] + ':' + PORT + '/get_ring', json=node.ring)
+		if(current_node['ip']!=BOOTSTRAP_IP):
+			response = requests.post('http://' + current_node['ip'] + ':' + current_node['port'] + '/get_ring', json=node.ring)
 			if(response.status_code != 200):
 				return jsonify({'status':'Error'}), 400
 	return jsonify({'status': 'OK'}), 200
