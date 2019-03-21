@@ -54,6 +54,10 @@ def sessions():
 				node.index=int(nid)
 				blockchain_json= response.json()['blockchain']
 				node.chain = Blockchain(node.index, blockchain_json['unconfirmed_transactions'], blockchain_json['chain'])
+				if(node.valid_chain()):
+					print("I got a valid blockchain!")
+				else:
+					print("My first blockchain is false :( ")
 				response = requests.post("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/first_transaction?id="+ str(nid))
 				if(response.status_code == 200):
 					output = response.json()['output']
@@ -94,7 +98,12 @@ def init_node():
 def first_transaction():
 	global node
 	nid = int(request.args.get('id'))
-	recipient_public_key = node.ring[nid]['public_key']
+	for n in node.ring:
+		if(n['id'] == nid):
+			recipient_node = n
+	recipient_public_key = recipient_node['public_key']
+	print("This is your public key: ")
+	print(recipient_public_key)
 	new_transaction= node.create_transaction(node.wallet.public_key, recipient_public_key, 100, node.NBCs)
 	transaction = new_transaction['transaction']
 	signature = new_transaction['signature']
@@ -109,14 +118,25 @@ def first_transaction():
 @app.route('/create/new_transaction', methods=['POST'])
 def new_transaction():
 	global node
-	nid = int(request.form['id'])
-	amount = int(request.form['amount'])
-	recipient_public_key = node.ring[nid]['public_key']
+	print("Sending my first transaction!")
+	nid = int(request.args.get('id'))  # request.form(['id'])
+	print("Toid is" + str(nid))
+	amount = int(request.args.get('amount'))
+	print("amount is" + str(amount))
+	for n in node.ring:
+		if(n['id'] == nid):
+			recipient_node = nid
+	print("recipient node is" + str(recipient_node))
+	recipient_public_key = recipient_node['public_key']
 	new_transaction= node.create_transaction(node.wallet.public_key, recipient_public_key, amount, node.NBCs)
 	transaction = new_transaction['transaction']
+	print("transaction created!")
+	print("Trans= " + str(transaction))
 	signature = new_transaction['signature']
 	outputs = new_transaction['outputs']
+	print("About to broadcast")
 	if(node.broadcast_transaction(transaction, signature, outputs)==-1):
+		print("Broadcast Error")
 		return jsonify({'status': 'Error'}), 500
 	node.NBCs = [outputs['sender']]
 	print("My precious output: ")
@@ -124,7 +144,7 @@ def new_transaction():
 	print("Sending this output: ")
 	print(outputs['recipient'])
 	response = outputs['recipient']
-	r = requests.post("http://" + node.ring[nid]['ip'] + ":" + node.ring[nid][port] + "/receive_transaction", json=outputs['recipient'])
+	r = requests.post("http://" + recipient_node['ip'] + ":" + recipient_node['port'] + "/receive_transaction", json=outputs['recipient'])
 	if(r.status_code != 200):
 		return jsonify({'status': 'Error'}), 500
 	return jsonify(response), 200
@@ -149,7 +169,11 @@ def get_mined_block():
 	print("My chain now: ")
 	print(node.chain.chain)
 	print("New transaction: ")
-	print(node.chain.unconfirmed_transactions)	
+	print(node.chain.unconfirmed_transactions)
+	if(node.valid_chain()):
+		print("My chain is valid")
+	else:
+		print("Something wrong with my chain :-( ")	
 	return jsonify({'status':'OK'}), 200
 
 @app.route('/nodes_ready', methods=['POST'])
@@ -180,9 +204,19 @@ def validate_trans():
 @app.route('/run_5')
 def run_5():
 	global node
-	path = "../transactions/5nodes/transactions" + str(node.index) + ".txt"
+	path = "../transactions/5nodes/trans" + str(node.index) + ".txt"
 	file = open(path, "r")
-	line = file.readline()
+	#line = file.readline()
+	for line in file:
+		recipient, amount_first = line.split(" ",1)
+		print(amount_first)
+		amount = amount_first.split("\n",1)[0]
+		print(amount)
+		recipient_id = recipient[2]
+		response = requests.post('http://' + node.ip + ':' + node.port + '/create/new_transaction?id=' + recipient_id + '&amount=' + str(int(amount)))
+		if(response.status_code != 200):
+			print('Some error!')
+			return jsonify({'status': 'error'}), 500 
 	return jsonify({'first_line': line}), 200
 
 @app.route('/valid_chain')
@@ -193,6 +227,14 @@ def valid_chain():
 	else:
 		return jsonify({'status': 'Error! Invalid blockchain'}), 500
 
+@app.route('/get_chain', methods=['POST'])
+def get_chain():
+	global node
+	length = len(node.chain.chain)
+	chain = node.chain.to_dict()
+	response = {'length': length, 'chain': chain}
+	return jsonify(response), 200
+	
 @app.route('/balance')
 def balance():
 	global node
@@ -215,7 +257,7 @@ if __name__ == '__main__':   #Skeletos
 
     parser = ArgumentParser()
     parser.add_argument('-p', '--port', default=5000, type=int, help='port to listen on')
-    parser.add_argument('ip', required=True)
+    parser.add_argument('ip')
     args = parser.parse_args()
     port = args.port
     ip = args.ip

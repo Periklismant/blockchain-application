@@ -99,9 +99,14 @@ class Node:
 		#use of signature and NBCs balance
 		
 		signature=transaction_json['signature']
-		transaction=transaction_json['transaction']
+		trans=transaction_json['transaction']
 		outputs= transaction_json['outputs']
-		transaction=OrderedDict(transaction)
+		transaction = OrderedDict()
+		transaction['amount'] = trans['amount']
+		transaction['sender_address'] = trans['sender_address']
+		transaction['recipient_address'] = trans['recipient_address']
+		#print("Validating this: ")
+		#print(transaction)
 		sender_public_key=RSA.importKey(binascii.unhexlify(transaction['sender_address']))
 		verifier = PKCS1_v1_5.new(sender_public_key)	
 		message = str(transaction).encode('utf8')		
@@ -114,6 +119,7 @@ class Node:
 				return 0 
 			else:
 				print("Not enough money")
+				return -1
 		else:
 			print("Verification Failed")
 			return -1
@@ -177,8 +183,9 @@ class Node:
 			
 	#concencus functions
 
-	def valid_chain(self):
-		chain = self.chain.chain
+	def valid_chain(self, chain=None):
+		if chain == None:
+			chain = self.chain.chain
 		last_block = chain[-1]
 		i = 1
 		while i < len(chain):
@@ -186,7 +193,13 @@ class Node:
 			block = chain[i].copy()
 			if block['previousHash'] != blockprev['hash']:
 				print("Chain previous hash error!")
-				return False
+				new_chain = self.resolve_conflicts()
+				if(new_chain != None):
+					print("Conflict resolved :-)")
+					return True
+				else:
+					print("Chain still has a problem")
+					return False
 			block_hash = block.pop('hash', None)
 			block_string = json.dumps(block, sort_keys=True)
 			myhash = sha256(block_string.encode()).hexdigest()
@@ -198,14 +211,28 @@ class Node:
 		print("Chain is valid! :-)")
 		return True
 
-
-
-
-		#check for the longer chain accroose all nodes
-
-
-	#def resolve_conflicts(self):
-		#resolve correct chain
+	def resolve_conflicts(self):
+		my_chain = self.chain.chain
+		new_chain = None
+		max_length = len(my_chain)
+	
+		session = FuturesSession()
+		future = []
+		for node in self.ring:
+			future.append(session.get('http://' + node['ip'] + ':' + node['port'] + '/get_chain', hooks={'response': self.response_hook}))
+		for fut in future:
+			response = fut.result()
+			if(response.status_code != 200):
+				return -1
+			length = response.json()['length']
+			chain = response.json()['chain']
+			if length > max_length and self.valid_chain(chain):
+				max_length=length
+				new_chain=chain
+		if new_chain:
+			self.chain = new_chain
+		
+		return new_chain
 
 
 

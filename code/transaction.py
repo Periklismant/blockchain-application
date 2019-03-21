@@ -54,15 +54,19 @@ class Transaction:
 		return sha256(transaction_string.encode()).hexdigest()
 
 	def to_dict(self):
-		return OrderedDict({'sender_address': self.sender_address,'recipient_address': self.recipient_address,'amount': self.amount})
-
+		ret = OrderedDict()
+		ret['amount'] = self.amount
+		ret['sender_address'] = self.sender_address
+		ret['recipient_address'] = self.recipient_address
+		return ret
 	def to_dict_signed(self):
-		return OrderedDict({'sender_address': self.sender_address,'recipient_address': self.recipient_address,
-							'amount': self.amount, 'id': self.hash, 'signature': self.signature})
+		return OrderedDict({'amount': self.amount, 'sender_address': self.sender_address,'recipient_address': self.recipient_address,'id': self.hash, 'signature': self.signature})
 
 	def sign_transaction(self):
 		private_key = RSA.importKey(binascii.unhexlify(self.sender_private_key))
 		signer = PKCS1_v1_5.new(private_key)
+		print("Signing with this message")
+		print(self.to_dict())
 		message = str(self.to_dict()).encode('utf8')
 		h = SHA.new(message)
 		signature= binascii.hexlify(signer.sign(h)).decode('ascii')
