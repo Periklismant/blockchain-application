@@ -34,11 +34,12 @@ param_lock = threading.Lock()
 @app.route('/')
 def sessions():
 	global node
+	print("Let's go!")
 	if(not node):	
 		print(request.host)
 		ip = request.host.split(':',1)[0]
 		port = request.host.split(':',1)[1]
-		if(ip==BOOTSTRAP_IP):
+		if(ip==BOOTSTRAP_IP and port==BOOTSTRAP_PORT):
 			node = Node(ip, port, index=0)
 			node.wallet = node.create_wallet()
 			node.NBCs.append({'id': '0', 'recipient_address': node.wallet.public_key, 'amount':NUM_OF_NODES * 100})
@@ -48,7 +49,10 @@ def sessions():
 		else:	
 			node = Node(ip, port)
 			node.wallet = node.create_wallet()
-			response = requests.get("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/init_node?ip="+ip+"&port="+ port + "&public_key="+node.wallet.public_key)
+			while True:
+				response = requests.get("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/init_node?ip="+ip+"&port="+ port + "&public_key="+node.wallet.public_key)
+				if response.status_code != 503:
+					break
 			if(response.status_code == 200):
 				nid=response.json()['id']
 				node.index=int(nid)
@@ -58,20 +62,20 @@ def sessions():
 					print("I got a valid blockchain!")
 				else:
 					print("My first blockchain is false :( ")
-				response = requests.post("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/first_transaction?id="+ str(nid))
+				while True:
+					response = requests.post("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/first_transaction?id="+ str(nid))
+					if response.status_code != 503:
+						break
 				if(response.status_code == 200):
 					output = response.json()['output']
 					node.NBCs.append(output)
 					print("Median node added successfully!")
 		if(node.index == NUM_OF_NODES-1):
 			print("Oops! It was the last one!")
-			response = requests.post("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/nodes_ready")
-			
-			#for node in other_nodes:
-				#node.ring=bootstrap_node.ring
-		#return "Node Added! Your port is: " + port , 201
-	#else: 
-		#return "Homepage!", 200
+			while True:
+				response = requests.post("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/nodes_ready")
+				if response.status_code != 503:
+					break
 	return render_template('homepage.html'), 200
 
 @app.route('/create')
@@ -80,8 +84,10 @@ def new_transaction_session():
 
 @app.route('/init_node', methods=['GET'])
 def init_node():
-	global node #, blockchain
-	#Initializing its id	
+	global node 
+	#if node.busy == True:
+	#	return jsonify({'status': 'Try again'}), 503
+	#node.busy=True
 	nid= node.current_id_count
 	node.current_id_count+=1 #for next node
 	
@@ -92,128 +98,232 @@ def init_node():
 	node.ring.append({'id': nid, 'ip': ip, 'port': port, 'public_key': PubKey})
 	
 	response = {'blockchain': node.chain.to_dict(),'id': nid}
+	#node.busy=False
 	return jsonify(response),200 #Sending Key and id
 	
 @app.route('/first_transaction', methods=['POST'])
 def first_transaction():
 	global node
+	#if node.busy == True:
+	#	return jsonify({'status': 'Try again'}), 503
+	#node.busy=True
 	nid = int(request.args.get('id'))
 	for n in node.ring:
 		if(n['id'] == nid):
 			recipient_node = n
 	recipient_public_key = recipient_node['public_key']
-	print("This is your public key: ")
-	print(recipient_public_key)
 	new_transaction= node.create_transaction(node.wallet.public_key, recipient_public_key, 100, node.NBCs)
 	transaction = new_transaction['transaction']
 	signature = new_transaction['signature']
 	outputs = new_transaction['outputs']
 	if(node.broadcast_transaction(transaction, signature, outputs)==-1):
 		return jsonify({'status': 'Error'}), 500
+	node.add_transaction_to_block(new_transaction)
+	if(len(node.chain.unconfirmed_transactions)==BLOCK_SIZE):
+		#node.busy=False
+		if(node.broadcast_mine_block(node.chain.unconfirmed_transactions)==-1):
+			return jsonify({'status': 'Error'}), 500
 	node.NBCs = [outputs['sender']]
 	response = {'output': outputs['recipient']}
-	#print(response)
+	#node.busy=False
 	return jsonify(response), 200
 
 @app.route('/create/new_transaction', methods=['POST'])
 def new_transaction():
 	global node
-	print("Sending my first transaction!")
-	nid = int(request.args.get('id'))  # request.form(['id'])
-	print("Toid is" + str(nid))
+	if node.busy == True:
+		return jsonify({'status': 'Try again'}), 503
+	node.busy=True
+	print("Sending transaction!")
+	nid = int(request.args.get('id'))  
+	#nid = int(request.form['id'])
+	print("Receipient id is" + str(nid))
 	amount = int(request.args.get('amount'))
+	#amount = int(request.form['amount'])
 	print("amount is" + str(amount))
 	for n in node.ring:
 		if(n['id'] == nid):
-			recipient_node = nid
-	print("recipient node is" + str(recipient_node))
+			recipient_node = n
+		#print("recipient node is" + str(recipient_node))
 	recipient_public_key = recipient_node['public_key']
 	new_transaction= node.create_transaction(node.wallet.public_key, recipient_public_key, amount, node.NBCs)
 	transaction = new_transaction['transaction']
 	print("transaction created!")
-	print("Trans= " + str(transaction))
 	signature = new_transaction['signature']
 	outputs = new_transaction['outputs']
 	print("About to broadcast")
-	if(node.broadcast_transaction(transaction, signature, outputs)==-1):
+	ret = node.broadcast_transaction(transaction, signature, outputs)
+	if ret ==-1:
 		print("Broadcast Error")
 		return jsonify({'status': 'Error'}), 500
-	node.NBCs = [outputs['sender']]
-	print("My precious output: ")
-	print(outputs['sender'])
-	print("Sending this output: ")
-	print(outputs['recipient'])
-	response = outputs['recipient']
-	r = requests.post("http://" + recipient_node['ip'] + ":" + recipient_node['port'] + "/receive_transaction", json=outputs['recipient'])
-	if(r.status_code != 200):
-		return jsonify({'status': 'Error'}), 500
+	if ret != -2:
+		node.add_transaction_to_block(new_transaction)
+		print("Last block transactions count: ")
+		print(len(node.chain.unconfirmed_transactions))
+		if((len(node.chain.unconfirmed_transactions)>=BLOCK_SIZE) and (node.index != 0)):
+			#while True:
+			response = requests.post("http://" + BOOTSTRAP_IP + ":" + BOOTSTRAP_PORT + "/we_should_mine")
+				#if response.status_code != 503:
+					#break
+			#node.busy=True
+			#if(node.broadcast_mine_block(node.chain.unconfirmed_transactions)==-1):
+			#	return jsonify({'status': 'Error'}), 500
+			#node.busy=True
+		node.NBCs = [outputs['sender']]
+		print('Transaction Verified and Ready to be Sent')
+		response = outputs['recipient']
+		while True:
+			r = requests.post("http://" + node.ring[nid]['ip'] + ":" + node.ring[nid]['port'] + "/receive_transaction", json=outputs['recipient'])
+			if r.status_code != 503:
+				break
+			if(r.status_code != 200):
+				return jsonify({'status': 'Error'}), 500
+	node.busy=False
 	return jsonify(response), 200
+
+@app.route('/we_should_mine', methods=["POST"])
+def lets_mine():
+	global node
+	if node.busy == True:
+		return jsonify({'status': 'Try again'}), 503
+	if(len(node.chain.unconfirmed_transactions)>=BLOCK_SIZE):
+		#node.busy=True
+		ready_transactions=node.chain.unconfirmed_transactions[:BLOCK_SIZE]
+		#for transaction in ready_transactions:
+		#	ret = node.broadcast_validate(transaction)
+		#	if ret ==-1:
+		#		print("Broadcast Error")
+		#		return jsonify({'status': 'Error'}), 500
+		if(node.broadcast_mine_block(ready_transactions)==-1):
+			return jsonify({'status': 'Error'}), 500	
+	node.busy=False
+	return jsonify({'status': 'OK'}), 200
+
+@app.route('/mine', methods=['POST'])
+def mine():
+	global node
+	#if node.busy == True:
+	#	return jsonify({'status': 'Try again'}), 503
+	node.busy=True
+	print("About to Mine :-)")
+	new_block= node.create_new_block(request.json)
+	mined_block = node.mine_block(new_block)
+	if(mined_block == 0):
+		return jsonify({'status': 'OK'}), 200
+	if(node.broadcast_block(mined_block)!=0):
+		return jsonify()
+	node.chain.chain.append(mined_block)
+	for i in range(BLOCK_SIZE):
+		node.chain.unconfirmed_transactions.pop(0)
+	#node.chain.unconfirmed_transactions = []
+		#	return 0
+	node.busy=False
+	return jsonify({'status': 'OK'}), 200
 
 @app.route('/receive_transaction', methods=['POST'])
 def receive_transaction():
 	global node
+	#if node.busy == True:
+	#	return jsonify({'status': 'Try again'}), 503
+	#node.busy=True
 	output = request.json
 	node.NBCs.append(output)
+	#node.busy=False
 	return jsonify({'status': 'OK'}), 200
 
 @app.route('/get_mined_block', methods=['POST'])
 def get_mined_block():
 	global node
+	#if node.busy == True:
+	#	return jsonify({'status': 'Try again'}), 503
+	node.busy=True
 	mined_block = request.json['block']
-	transaction = request.json['transaction']
 	if(len(node.chain.chain) != mined_block['index']):
 		print('Got it from someone else')
 		return jsonify({'status': 'OK'}), 200
 	node.chain.chain.append(mined_block)
-	node.chain.unconfirmed_transactions = [transaction]
+	for i in range(BLOCK_SIZE):
+		node.chain.unconfirmed_transactions.pop(0)
 	print("My chain now: ")
-	print(node.chain.chain)
-	print("New transaction: ")
-	print(node.chain.unconfirmed_transactions)
+	#print(node.chain.chain)
+	print("Transactions left unconfirmed")
+	print(len(node.chain.unconfirmed_transactions))
 	if(node.valid_chain()):
 		print("My chain is valid")
 	else:
 		print("Something wrong with my chain :-( ")	
+	node.busy=False
 	return jsonify({'status':'OK'}), 200
 
 @app.route('/nodes_ready', methods=['POST'])
 def nodes_ready():
 	global node
+	#if node.busy == True:
+	#	return jsonify({'status': 'Try again'}), 503
+	node.busy=True
 	for current_node in node.ring:
-		if(current_node['ip']!=BOOTSTRAP_IP):
-			response = requests.post('http://' + current_node['ip'] + ':' + current_node['port'] + '/get_ring', json=node.ring)
+		if(current_node['ip']!=BOOTSTRAP_IP or current_node['port']!=BOOTSTRAP_PORT):
+			while True:
+				response = requests.post('http://' + current_node['ip'] + ':' + current_node['port'] + '/get_ring', json=node.ring)
+				if response.status_code != 503:
+					break
 			if(response.status_code != 200):
 				return jsonify({'status':'Error'}), 400
+	node.busy=False
 	return jsonify({'status': 'OK'}), 200
 
 @app.route('/get_ring', methods=['POST'])
 def get_my_ring():
 	global node
+	#if node.busy == True:
+	#	return jsonify({'status': 'Try again'}), 503
+	#node.busy=True
 	ring=request.json
 	node.ring=ring
+	#node.busy=False
 	return jsonify({'status': 'OK'}), 200
-		
+
+@app.route('/add_transaction', methods=['POST'])
+def add_transaction():
+	global node
+	if(node.add_transaction_to_block(request.json)==0):
+		return jsonify({'status': 'OK'}), 200
+	else:
+		return jsonify({'status': 'Error! Invalid Transaction'}), 400
+	
 @app.route('/validate_transaction', methods=['POST'])
 def validate_trans():
 	global node
+	#if node.busy == True:
+		#return jsonify({'status': 'Try again'}), 503
+	#node.busy=True
 	if(node.validate_transaction(request.json)==0):
+		#node.busy=False
 		return jsonify({'status': 'OK'}), 200
 	else:
+		#node.busy=False
 		return jsonify({'status': 'Error! Invalid Transaction'}), 400
 
 @app.route('/run_5')
 def run_5():
 	global node
-	path = "../transactions/5nodes/trans" + str(node.index) + ".txt"
+	#node.busy =False
+	path = "../transactions/5nodes/transactions" + str(node.index) + ".txt"
 	file = open(path, "r")
 	#line = file.readline()
 	for line in file:
+		print('Next Line')
+		print(line)
+		if line == "\n":
+			break 
 		recipient, amount_first = line.split(" ",1)
-		print(amount_first)
 		amount = amount_first.split("\n",1)[0]
 		print(amount)
 		recipient_id = recipient[2]
-		response = requests.post('http://' + node.ip + ':' + node.port + '/create/new_transaction?id=' + recipient_id + '&amount=' + str(int(amount)))
+		while True:
+			response = requests.post('http://' + node.ip + ':' + node.port + '/create/new_transaction?id=' + recipient_id + '&amount=' + str(int(amount)))
+			if response.status_code != 503:
+				break
 		if(response.status_code != 200):
 			print('Some error!')
 			return jsonify({'status': 'error'}), 500 
@@ -229,23 +339,35 @@ def valid_chain():
 
 @app.route('/get_chain', methods=['POST'])
 def get_chain():
-	global node
+	global node	
+	#if node.busy == True:
+	#	return jsonify({'status': 'Try again'}), 503
+	#node.busy=True
 	length = len(node.chain.chain)
 	chain = node.chain.to_dict()
 	response = {'length': length, 'chain': chain}
+	#node.busy=False
 	return jsonify(response), 200
 	
 @app.route('/balance')
 def balance():
 	global node
+	#if node.busy == True:
+	#	return jsonify({'status': 'Try again'}), 503
+	#node.busy=True
 	cash = node.balance()
+	#node.busy=False
 	return render_template('balance.html', cash=cash)
 
 @app.route('/view')
 def view():
 	global node
+	#if node.busy == True:
+	#	return jsonify({'status': 'Try again'}), 503
+	#node.busy=True
 	last_block = node.chain.chain[-1]
 	response = {'transactions': last_block['transactions']['transaction']}
+	#node.busy=False
 	return render_template('view.html',last_transactions=jsonify(response))
 
 @app.route('/help')
@@ -257,9 +379,9 @@ if __name__ == '__main__':   #Skeletos
 
     parser = ArgumentParser()
     parser.add_argument('-p', '--port', default=5000, type=int, help='port to listen on')
-    parser.add_argument('ip')
+    #parser.add_argument('ip')
     args = parser.parse_args()
     port = args.port
-    ip = args.ip
+    #ip = args.ip
     #app.run()
-    socketio.run(app, host=ip, port=port)
+    socketio.run(app, host='127.0.0.1', port=port)

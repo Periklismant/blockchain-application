@@ -65,8 +65,8 @@ class Transaction:
 	def sign_transaction(self):
 		private_key = RSA.importKey(binascii.unhexlify(self.sender_private_key))
 		signer = PKCS1_v1_5.new(private_key)
-		print("Signing with this message")
-		print(self.to_dict())
+		print("Signing Transaction")
+		#print(self.to_dict())
 		message = str(self.to_dict()).encode('utf8')
 		h = SHA.new(message)
 		signature= binascii.hexlify(signer.sign(h)).decode('ascii')

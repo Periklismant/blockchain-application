@@ -35,6 +35,7 @@ class Node:
 		self.NBCs=[]
 		self.ip = ip
 		self.port = port
+		self.busy = False
 		self.wallet = None
 		self.ring = [] 
 		
@@ -80,24 +81,65 @@ class Node:
 		return {'transaction': transaction.to_dict(), 'signature': signature, 'outputs': transaction.transaction_outputs}
 		#remember to broadcast it
 
+
 	def broadcast_transaction(self, transaction, signature, outputs):
 		session = FuturesSession()
 		future = []
 		for node in self.ring:
-			future.append(session.post('http://' + node['ip'] + ':' + node['port'] + '/validate_transaction', 
+			if node['id'] != self.index:
+				future.append({'resp': session.post('http://' + node['ip'] + ':' + node['port'] + '/validate_transaction', 
 										json={'transaction':transaction, 'signature': signature, 'outputs': outputs},
-										hooks={'response': self.response_hook}))
-		for fut in future:
-			response = fut.result()	
-			if(response.status_code != 200):
-				return -1
+										hooks={'response': self.response_hook}), 'ip': node['ip'], 'port': node['port']})
+		retry=True
+		while retry:
+			retry=False 
+			future_next=[]
+			for fut in future:
+				response = fut['resp'].result()
+				if response.status_code == 503:
+					ip=fut['ip']
+					port=fut['port']
+					future_next.append({'resp': session.post('http://' + ip + ':' + port + '/validate_transaction', 
+										json={'transaction':transaction, 'signature': signature, 'outputs': outputs},
+										hooks={'response': self.response_hook}), 'ip': ip, 'port': port})
+					retry=True
+				elif response.status_code != 200:
+					return -1
+			future=future_next
 		return 0
+
+	#def broadcast_validate(self, transaction, signature, outputs):
+	#	session = FuturesSession()
+	#	future = []
+	#	for node in self.ring:
+	#		if node['id'] != self.index:
+	#			future.append({'resp': session.post('http://' + node['ip'] + ':' + node['port'] + '/validate_transaction', 
+	#									json={'transaction':transaction, 'signature': signature, 'outputs': outputs},
+	#									hooks={'response': self.response_hook}), 'ip': node['ip'], 'port': node['port']})
+	#	retry=True
+	#	while retry:
+	#		retry=False 
+	#		future_next=[]
+	#		for fut in future:
+	#			response = fut['resp'].result()
+	#			if response.status_code == 503:
+	#				ip=fut['ip']
+	#				port=fut['port']
+	#				future_next.append({'resp': session.post('http://' + ip + ':' + port + '/validate_transaction', 
+	#									json={'transaction':transaction, 'signature': signature, 'outputs': outputs},
+	#									hooks={'response': self.response_hook}), 'ip': ip, 'port': port})
+	#				retry=True
+	#			elif response.status_code != 200:
+	#				return -1
+	#		future=future_next
+	#	return 0
+
 		
 #str(self.to_dict()).encode('utf8')
 
 	def validate_transaction(self, transaction_json):
 		#use of signature and NBCs balance
-		
+		#self.busy=True
 		signature=transaction_json['signature']
 		trans=transaction_json['transaction']
 		outputs= transaction_json['outputs']
@@ -116,10 +158,12 @@ class Node:
 			if outputs['sender']['amount'] >= 0:
 				print("Cool verification")
 				self.add_transaction_to_block(transaction_json)
+				#self.busy=False
 				return 0 
 			else:
 				print("Not enough money")
-				return -1
+				#self.busy=False
+				return -2
 		else:
 			print("Verification Failed")
 			return -1
@@ -129,21 +173,49 @@ class Node:
 			unconfirmed_transactions= self.chain.unconfirmed_transactions
 		else:
 			unconfirmed_transactions=[]
-		if(len(unconfirmed_transactions)<BLOCK_SIZE):
-			self.chain.unconfirmed_transactions.append(transaction)
-			return 0
-		else:
-			print("About to Mine :-)")
-			new_block= self.create_new_block(self.chain.unconfirmed_transactions)
-			mined_block = self.mine_block(new_block)
-			if(mined_block == 0):
-				return 0
-			if(self.broadcast_block(mined_block, transaction)!=0):
-				return -1
-			return 0
+		#if(len(unconfirmed_transactions)<BLOCK_SIZE):
+		self.chain.unconfirmed_transactions.append(transaction)
+		print("Last block transactions count: ")
+		print(len(self.chain.unconfirmed_transactions))
+		print("My last transactions")
+		#print(self.chain.unconfirmed_transactions)
+		return 0
+		#else:
+		#	print("About to Mine :-)")
+		#	new_block= self.create_new_block(self.chain.unconfirmed_transactions)
+		#	mined_block = self.mine_block(new_block)
+		#	if(mined_block == 0):
+		#		return 0
+		#	if(self.broadcast_block(mined_block, transaction)!=0):
+		#		return -1
+		#	return 0
 			
 		#if enough transactions  mine
-
+	def broadcast_mine_block(self, unconfirmed_transactions):
+		session = FuturesSession()
+		future = []
+		for node in self.ring:
+			if node['id']!= self.index:
+				future.append({'resp': session.post('http://' + node['ip'] + ':' + node['port'] + '/mine', 
+										json=unconfirmed_transactions,
+										hooks={'response': self.response_hook}), 'ip': node['ip'], 'port': node['port']})
+		retry=True
+		while retry:
+			retry=False 
+			future_next=[]
+			for fut in future:
+				response = fut['resp'].result()
+				if response.status_code == 503:
+					ip=fut['ip']
+					port=fut['port']
+					future_next.append({'resp': session.post('http://' + ip + ':' + port + '/mine', 
+										json=unconfirmed_transactions,
+										hooks={'response': self.response_hook}), 'ip': ip, 'port': port})
+					retry=True
+				elif response.status_code != 200:
+					return -1
+			future=future_next
+		return 0
 	def mine_block(self, block):
 		myhash = block['hash']
 		del block['hash']
@@ -155,25 +227,38 @@ class Node:
 			if len(self.chain.chain) != block['index']:
 				return 0
 		block['hash']=myhash
-		print("I MINED THIS BLOCK")
-		print(block)
+		print("I MINED THE NEXT BLOCK :-D")
+		#print(block)
 		return block
 
 	def response_hook(resp, *args, **kwargs):
 		resp.data = resp
 
 
-	def broadcast_block(self, mined_block, transaction):
+	def broadcast_block(self, mined_block):
 		session = FuturesSession()
 		future = []
 		for node in self.ring:
-			future.append(session.post('http://' + node['ip'] + ':' + node['port'] + '/get_mined_block', 
-										json={'block': mined_block, 'transaction': transaction}, 
-										hooks={'response': self.response_hook}))
-		for fut in future:
-			response = fut.result()
-			if(response.status_code != 200):
-				return -1
+			if node['id'] != self.index:
+				future.append({'resp': session.post('http://' + node['ip'] + ':' + node['port'] + '/get_mined_block', 
+										json={'block': mined_block}, 
+										hooks={'response': self.response_hook}),'ip': node['ip'], 'port': node['port']})
+		retry=True
+		while retry:
+			retry=False
+			future_next=[]
+			for fut in future:
+				response = fut['resp'].result()
+				if response.status_code == 503:
+					ip=fut['ip']
+					port=fut['port']
+					future_next.append({'resp': session.post('http://' + ip + ':' + port + '/get_mined_block', 
+										json={'block': mined_block}, 
+										hooks={'response': self.response_hook}), 'ip': ip, 'port': port})
+					retry=True
+				elif response.status_code != 200:
+					return -1
+			future=future_next
 		return 0
 
 		
@@ -219,20 +304,29 @@ class Node:
 		session = FuturesSession()
 		future = []
 		for node in self.ring:
-			future.append(session.get('http://' + node['ip'] + ':' + node['port'] + '/get_chain', hooks={'response': self.response_hook}))
-		for fut in future:
-			response = fut.result()
-			if(response.status_code != 200):
-				return -1
-			length = response.json()['length']
-			chain = response.json()['chain']
-			if length > max_length and self.valid_chain(chain):
-				max_length=length
-				new_chain=chain
+			if node['id'] != self.index:
+				future.append({'resp': session.get('http://' + node['ip'] + ':' + node['port'] + '/get_chain', hooks={'response': self.response_hook}), 'ip': node['ip'], 'port': node['port']})
+		retry=True
+		while retry:
+			retry=False
+			future_next=[]
+			for fut in future:
+				response = fut['resp'].result()
+				if response.status_code == 503:
+					ip=fut['ip']
+					port=fut['port']
+					future_next.append({'resp': session.get('http://' + ip + ':' + port + '/get_chain', hooks={'response': self.response_hook}), 'ip': ip, 'port': port})
+					retry =True
+				elif(response.status_code != 200):
+					return -1
+				else:
+					length = response.json()['length']
+					chain = response.json()['chain']
+					if length > max_length and self.valid_chain(chain):
+						max_length=length
+						new_chain=chain
+			future=future_next
 		if new_chain:
 			self.chain = new_chain
 		
 		return new_chain
-
-
-
