@@ -16,7 +16,8 @@ from Crypto.Hash import SHA
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 from hashlib import sha256
-from time import time
+import time
+#from time import time
 
 import Crypto
 from Crypto.Hash import SHA256
@@ -31,7 +32,7 @@ class Node:
 		else: 
 			self.chain = chain 
 		
-		
+		self.block_times=[]	
 		self.NBCs=[]
 		self.ip = ip
 		self.port = port
@@ -108,35 +109,7 @@ class Node:
 			future=future_next
 		return 0
 
-	#def broadcast_validate(self, transaction, signature, outputs):
-	#	session = FuturesSession()
-	#	future = []
-	#	for node in self.ring:
-	#		if node['id'] != self.index:
-	#			future.append({'resp': session.post('http://' + node['ip'] + ':' + node['port'] + '/validate_transaction', 
-	#									json={'transaction':transaction, 'signature': signature, 'outputs': outputs},
-	#									hooks={'response': self.response_hook}), 'ip': node['ip'], 'port': node['port']})
-	#	retry=True
-	#	while retry:
-	#		retry=False 
-	#		future_next=[]
-	#		for fut in future:
-	#			response = fut['resp'].result()
-	#			if response.status_code == 503:
-	#				ip=fut['ip']
-	#				port=fut['port']
-	#				future_next.append({'resp': session.post('http://' + ip + ':' + port + '/validate_transaction', 
-	#									json={'transaction':transaction, 'signature': signature, 'outputs': outputs},
-	#									hooks={'response': self.response_hook}), 'ip': ip, 'port': port})
-	#				retry=True
-	#			elif response.status_code != 200:
-	#				return -1
-	#		future=future_next
-	#	return 0
-
-		
-#str(self.to_dict()).encode('utf8')
-
+	
 	def validate_transaction(self, transaction_json):
 		#use of signature and NBCs balance
 		#self.busy=True
@@ -220,6 +193,7 @@ class Node:
 		myhash = block['hash']
 		del block['hash']
 		block['nonce'] = 0
+		mine_time_start = time.time()
 		while ((not self.valid_proof(myhash))):
 			block['nonce'] +=1
 			block_string = json.dumps(block, sort_keys=True)
@@ -228,6 +202,10 @@ class Node:
 				return 0
 		block['hash']=myhash
 		print("I MINED THE NEXT BLOCK :-D")
+		print("MINING TIME: ")
+		mining_time = time.time() - mine_time_start
+		print(mining_time)
+		self.block_times.appened(mining_time)
 		#print(block)
 		return block
 

@@ -1,10 +1,11 @@
-
 from flask import Flask, jsonify, request, render_template
 from flask_socketio import SocketIO, send
 from flask_cors import CORS
 
 from headers import *
 
+import time
+#from time import time
 from block import Block, Blockchain
 from node import Node
 from wallet import Wallet
@@ -306,11 +307,14 @@ def validate_trans():
 
 @app.route('/run_5')
 def run_5():
+	start = time.time()
 	global node
 	#node.busy =False
 	path = "../transactions/5nodes/transactions" + str(node.index) + ".txt"
 	file = open(path, "r")
 	#line = file.readline()
+	transaction_count=0
+	time_matrix=[]
 	for line in file:
 		print('Next Line')
 		print(line)
@@ -320,13 +324,25 @@ def run_5():
 		amount = amount_first.split("\n",1)[0]
 		print(amount)
 		recipient_id = recipient[2]
+		trans_before = time.time()
 		while True:
 			response = requests.post('http://' + node.ip + ':' + node.port + '/create/new_transaction?id=' + recipient_id + '&amount=' + str(int(amount)))
 			if response.status_code != 503:
 				break
 		if(response.status_code != 200):
 			print('Some error!')
-			return jsonify({'status': 'error'}), 500 
+			print('My throughput is: ')
+			print(sum(time_matrix) / transaction_count)
+			print('My block time is: ')
+			print(sum(node.block_times) / len(node.block_times))
+			return jsonify({'status': 'error'}), 500
+		trans_after = time.time()
+		time_matrix.append(trans_after-trans_before) 
+		transaction_count+=1
+	print('My throughput is: ')
+	print(sum(time_matrix) / transaction_count)
+	print('My block time is: ')
+	print(sum(node.block_times) / len(node.block_times))
 	return jsonify({'first_line': line}), 200
 
 @app.route('/valid_chain')
@@ -379,9 +395,9 @@ if __name__ == '__main__':   #Skeletos
 
     parser = ArgumentParser()
     parser.add_argument('-p', '--port', default=5000, type=int, help='port to listen on')
-    #parser.add_argument('ip')
+    parser.add_argument('ip')
     args = parser.parse_args()
     port = args.port
-    #ip = args.ip
+    ip = args.ip
     #app.run()
-    socketio.run(app, host='127.0.0.1', port=port)
+    socketio.run(app, host=ip, port=port)
