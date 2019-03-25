@@ -16,7 +16,6 @@ from headers import *
 
 class Wallet:
 
-
 	def __init__(self, public_key=None, private_key=None):
 		if (public_key == None and private_key == None):
 			random_gen = Crypto.Random.new().read
@@ -28,13 +27,6 @@ class Wallet:
 			self.public_key = public_key
 			self.private_key = private_key
 
-		#self.address = PubKey
-		#self.transactions = []
-		#signer = PKCS1_v1_5.new(PrivKey)
-		#digest = SHA.new()
-		#digest.update(message)
-		#signature = signer.sign(digest)
-		#print(signature)
 	
 	def to_dict(self):
 		return OrderedDict({'public_key': self.public_key.exportKey()})

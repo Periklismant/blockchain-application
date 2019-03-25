@@ -86,9 +86,6 @@ def new_transaction_session():
 @app.route('/init_node', methods=['GET'])
 def init_node():
 	global node 
-	#if node.busy == True:
-	#	return jsonify({'status': 'Try again'}), 503
-	#node.busy=True
 	nid= node.current_id_count
 	node.current_id_count+=1 #for next node
 	
@@ -99,7 +96,6 @@ def init_node():
 	node.ring.append({'id': nid, 'ip': ip, 'port': port, 'public_key': PubKey})
 	
 	response = {'blockchain': node.chain.to_dict(),'id': nid}
-	#node.busy=False
 	return jsonify(response),200 #Sending Key and id
 	
 @app.route('/first_transaction', methods=['POST'])
@@ -136,8 +132,8 @@ def new_transaction():
 		return jsonify({'status': 'Try again'}), 503
 	node.busy=True
 	print("Sending transaction!")
-	nid = int(request.args.get('id'))  
-	#nid = int(request.form['id'])
+	nid = int(request.args.get('id'))   # For script/command line use 
+	#nid = int(request.form['id']) # For frontend use 
 	print("Receipient id is" + str(nid))
 	amount = int(request.args.get('amount'))
 	#amount = int(request.form['amount'])
@@ -307,43 +303,83 @@ def validate_trans():
 
 @app.route('/run_5')
 def run_5():
-	start = time.time()
-	global node
+        start = time.time()
+        global node
 	#node.busy =False
-	path = "../transactions/5nodes/transactions" + str(node.index) + ".txt"
-	file = open(path, "r")
+        path = "../transactions/5nodes/transactions" + str(node.index) + ".txt"
+        file = open(path, "r")
 	#line = file.readline()
-	transaction_count=0
-	time_matrix=[]
-	for line in file:
-		print('Next Line')
-		print(line)
-		if line == "\n":
-			break 
-		recipient, amount_first = line.split(" ",1)
-		amount = amount_first.split("\n",1)[0]
-		print(amount)
-		recipient_id = recipient[2]
-		trans_before = time.time()
-		while True:
-			response = requests.post('http://' + node.ip + ':' + node.port + '/create/new_transaction?id=' + recipient_id + '&amount=' + str(int(amount)))
-			if response.status_code != 503:
-				break
-		if(response.status_code != 200):
-			print('Some error!')
-			print('My throughput is: ')
-			print(sum(time_matrix) / transaction_count)
-			print('My block time is: ')
-			print(sum(node.block_times) / len(node.block_times))
-			return jsonify({'status': 'error'}), 500
-		trans_after = time.time()
-		time_matrix.append(trans_after-trans_before) 
-		transaction_count+=1
-	print('My throughput is: ')
-	print(sum(time_matrix) / transaction_count)
-	print('My block time is: ')
-	print(sum(node.block_times) / len(node.block_times))
-	return jsonify({'first_line': line}), 200
+        transaction_count=0
+        time_matrix=[]
+        for line in file:
+            print('Next Line')
+            print(line)
+            if line == "\n":
+                break 
+            recipient, amount_first = line.split(" ",1)
+            amount = amount_first.split("\n",1)[0]
+            print(amount)
+            recipient_id = recipient[2]
+            trans_before = time.time()
+            while True:
+                response = requests.post('http://' + node.ip + ':' + node.port + '/create/new_transaction?id=' + recipient_id + '&amount=' + str(int(amount)))
+                if response.status_code != 503:
+                    break
+            if(response.status_code != 200):
+                print('Some error!')
+                print('My throughput is: ')
+                print(sum(time_matrix) / transaction_count)
+                print('My block time is: ')
+                print(sum(node.block_times) / len(node.block_times))
+                return jsonify({'status': 'error'}), 500
+            trans_after = time.time()
+            time_matrix.append(trans_after-trans_before) 
+            transaction_count+=1    
+        print('My throughput is: ') 
+        print(sum(time_matrix) / transaction_count)
+        print('My block time is: ')
+        print(sum(node.block_times) / len(node.block_times))
+        return jsonify({'first_line': line}), 200
+
+@app.route('/run_10')
+def run_10():
+        start = time.time()
+        global node
+	#node.busy =False
+        path = "../transactions/10nodes/transactions" + str(node.index) + ".txt"
+        file = open(path, "r")
+	#line = file.readline()
+        transaction_count=0
+        time_matrix=[]
+        for line in file:
+            print('Next Line')
+            print(line)
+            if line == "\n":
+                break 
+            recipient, amount_first = line.split(" ",1)
+            amount = amount_first.split("\n",1)[0]
+            print(amount)
+            recipient_id = recipient[2]
+            trans_before = time.time()
+            while True:
+                response = requests.post('http://' + node.ip + ':' + node.port + '/create/new_transaction?id=' + recipient_id + '&amount=' + str(int(amount)))
+                if response.status_code != 503:
+                    break
+            if(response.status_code != 200):
+                print('Some error!')
+                print('My throughput is: ')
+                print(sum(time_matrix) / transaction_count)
+                print('My block time is: ')
+                print(sum(node.block_times) / len(node.block_times))
+                return jsonify({'status': 'error'}), 500
+            trans_after = time.time()
+            time_matrix.append(trans_after-trans_before) 
+            transaction_count+=1
+        print('My throughput is: ')
+        print(sum(time_matrix) / transaction_count)
+        print('My block time is: ')
+        print(sum(node.block_times) / len(node.block_times))
+        return jsonify({'first_line': line}), 200
 
 @app.route('/valid_chain')
 def valid_chain():
@@ -395,9 +431,9 @@ if __name__ == '__main__':   #Skeletos
 
     parser = ArgumentParser()
     parser.add_argument('-p', '--port', default=5000, type=int, help='port to listen on')
-    parser.add_argument('ip')
+    #parser.add_argument('ip') # For okeanos runs only
     args = parser.parse_args()
     port = args.port
-    ip = args.ip
+    #ip = args.ip
     #app.run()
-    socketio.run(app, host=ip, port=port)
+    socketio.run(app, host='127.0.0.1', port=port)

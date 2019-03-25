@@ -205,7 +205,7 @@ class Node:
 		print("MINING TIME: ")
 		mining_time = time.time() - mine_time_start
 		print(mining_time)
-		self.block_times.appened(mining_time)
+		self.block_times.append(mining_time)
 		#print(block)
 		return block
 
@@ -283,7 +283,10 @@ class Node:
 		future = []
 		for node in self.ring:
 			if node['id'] != self.index:
-				future.append({'resp': session.get('http://' + node['ip'] + ':' + node['port'] + '/get_chain', hooks={'response': self.response_hook}), 'ip': node['ip'], 'port': node['port']})
+				future.append({'resp': session.get(
+					'http://' + node['ip'] + ':' + node['port'] + '/get_chain', 
+					hooks={'response': self.response_hook}), 
+					'ip': node['ip'], 'port': node['port']})
 		retry=True
 		while retry:
 			retry=False
@@ -293,7 +296,9 @@ class Node:
 				if response.status_code == 503:
 					ip=fut['ip']
 					port=fut['port']
-					future_next.append({'resp': session.get('http://' + ip + ':' + port + '/get_chain', hooks={'response': self.response_hook}), 'ip': ip, 'port': port})
+					future_next.append(
+						{'resp': session.get('http://' + ip + ':' + port + '/get_chain', 
+							hooks={'response': self.response_hook}), 'ip': ip, 'port': port})
 					retry =True
 				elif(response.status_code != 200):
 					return -1
